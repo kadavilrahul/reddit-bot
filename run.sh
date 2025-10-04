@@ -612,35 +612,164 @@ interactive_monitor() {                               # Interactive keyword moni
     monitor_keywords "$subreddit" "$keywords" "$duration" "$action"
 }
 
+interactive_posts_with_comments() {                     # Get subreddit posts WITH full comment threads
+    echo "=== GET SUBREDDIT POSTS WITH COMMENTS ==="
+    echo -n "Enter subreddit name without r/ (default: technology): "
+    read -r subreddit
+    subreddit=${subreddit:-technology}
+    
+    echo -n "Number of posts (default: 5): "
+    read -r limit
+    limit=${limit:-5}
+    
+    echo -n "Comments per post (default: 25): "
+    read -r comment_limit
+    comment_limit=${comment_limit:-25}
+    
+    echo -n "Sort by (hot/new/top/rising, default: hot): "
+    read -r sort_by
+    sort_by=${sort_by:-hot}
+    
+    echo "🔄 Fetching posts with comments (this may take a moment)..."
+    log "Fetching r/$subreddit posts with comments"
+    
+    run_python -c "
+from reddit_comments_fetcher import RedditCommentsFetcher
+try:
+    fetcher = RedditCommentsFetcher()
+    results = fetcher.get_subreddit_posts_with_comments(
+        subreddit_name='$subreddit',
+        sort_by='$sort_by', 
+        limit=$limit,
+        comment_limit=$comment_limit
+    )
+    
+    print()
+    print(f'=== r/{results[\"subreddit\"]} - {results[\"total_posts\"]} posts with comments ===')
+    print(f'Total comments fetched: {results[\"total_comments\"]}')
+    print(f'Average comments per post: {results[\"summary\"][\"average_comments_per_post\"]}')
+    print()
+    
+    print('📄 POSTS WITH COMMENT COUNTS:')
+    for i, post in enumerate(results['posts'][:5], 1):
+        comment_count = len(post.get('comments', []))
+        print(f'{i:2}. {post[\"title\"][:60]}...')
+        print(f'    Score: {post[\"score\"]} | Comments: {comment_count} | Author: {post[\"author\"]}')
+        print()
+    
+    print('📈 SUMMARY:')
+    summary = results['summary']
+    print(f'Most commented: {summary[\"most_commented_post\"][\"title\"]} ({summary[\"most_commented_post\"][\"comment_count\"]} comments)')
+    print(f'Highest scored: {summary[\"highest_scored_post\"][\"title\"]} ({summary[\"highest_scored_post\"][\"score\"]} points)')
+    print()
+    
+    save_choice = input('Save this data with comments to file? (y/N): ').strip().lower()
+    if save_choice in ['y', 'yes']:
+        filename = fetcher.save_data_to_file(results)
+        print(f'✓ Data with comments saved to: {filename}')
+        
+except Exception as e:
+    print(f'Error: {e}')
+"
+}
+
+interactive_search_with_comments() {                   # Search posts WITH full comment threads
+    echo "=== SEARCH POSTS WITH COMMENTS ==="
+    echo -n "Enter search query: "
+    read -r query
+    if [ -z "$query" ]; then
+        echo "Search query cannot be empty."
+        return
+    fi
+    
+    echo -n "Enter subreddit without r/ (default: all subreddits): "
+    read -r subreddit
+    
+    echo -n "Maximum posts (default: 5): "
+    read -r limit
+    limit=${limit:-5}
+    
+    echo -n "Comments per post (default: 25): "
+    read -r comment_limit
+    comment_limit=${comment_limit:-25}
+    
+    echo "🔄 Searching posts with comments (this may take several minutes)..."
+    log "Searching for '$query' with comments"
+    
+    run_python -c "
+from reddit_comments_fetcher import RedditCommentsFetcher
+try:
+    fetcher = RedditCommentsFetcher()
+    results = fetcher.search_posts_with_comments(
+        query='$query',
+        subreddit_name='$subreddit' if '$subreddit' else None,
+        limit=$limit,
+        comment_limit=$comment_limit
+    )
+    
+    print()
+    print(f'=== SEARCH RESULTS WITH COMMENTS: {results[\"total_posts\"]} found ===')
+    print(f'Query: {results[\"query\"]}')
+    if results.get('subreddit'):
+        print(f'Subreddit: r/{results[\"subreddit\"]}')
+    print(f'Total comments: {results[\"total_comments\"]}')
+    print()
+    
+    print('🤖 ANALYSIS INCLUDING COMMENTS:')
+    print(results['analysis'])
+    print()
+    
+    print('📄 TOP RESULTS WITH COMMENT COUNTS:')
+    for i, post in enumerate(results['posts'][:5], 1):
+        comment_count = len(post.get('comments', []))
+        print(f'{i}. {post[\"title\"][:60]}...')
+        print(f'   r/{post[\"subreddit\"]} | Score: {post[\"score\"]} | Comments: {comment_count}')
+        if comment_count > 0:
+            top_comment = post['comments'][0]
+            print(f'   Top comment: {top_comment[\"body\"][:80]}...')
+        print()
+    
+    save_choice = input('Save search results with comments to file? (y/N): ').strip().lower()
+    if save_choice in ['y', 'yes']:
+        filename = fetcher.save_data_to_file(results)
+        print(f'✓ Search results with comments saved to: {filename}')
+        
+except Exception as e:
+    print(f'Error: {e}')
+"
+}
+
 # Display interactive menu
 show_menu() {
     echo "=== 👤 Reddit Profile & Analysis ==="
-    echo " 1. View Profile Information     ./run.sh profile-view        # Get detailed account stats, karma, and verification status"
-    echo " 2. View Your Posts & Comments   ./run.sh profile-posts       # Show your recent submissions and comment history"
+    echo " 1. View Profile Information     ./run.sh profile-view         # Get detailed account stats, karma, and verification status"
+    echo " 2. View Your Posts & Comments   ./run.sh profile-posts        # Show your recent submissions and comment history"
     echo ""
     echo "=== 📄 Content Retrieval & Analysis ==="
-    echo " 3. Get Subreddit Posts          ./run.sh interactive-posts   # Guided post retrieval with smart defaults"
-    echo " 4. Search Posts with AI         ./run.sh interactive-search  # AI-powered search with guided prompts"
+    echo " 3. Get Subreddit Posts          ./run.sh interactive-posts    # Guided post retrieval with smart defaults"
+    echo " 4. Search Posts with AI         ./run.sh interactive-search   # AI-powered search with guided prompts"
+    echo " 5. Get Posts WITH COMMENTS      ./run.sh posts-with-comments  # Fetch posts including full comment threads"
+    echo " 6. Search WITH COMMENTS         ./run.sh search-with-comments # Search posts and include community discussions"
     echo ""
     echo "=== 🤖 Automation & Posting ==="
-    echo " 5. Post Custom Comment          ./run.sh comment-custom      # Post custom comment: ./run.sh comment-custom <post_url> '<text>'"
-    echo " 6. Auto-Comment on Posts        ./run.sh interactive-comment # Guided auto-commenting with safety prompts"
-    echo " 7. Monitor Keywords             ./run.sh interactive-monitor # Guided keyword monitoring setup"
+    echo " 7. Post Custom Comment          ./run.sh comment-custom       # Post custom comment: ./run.sh comment-custom <post_url> '<text>'"
+    echo " 8. Auto-Comment on Posts        ./run.sh interactive-comment  # Guided auto-commenting with safety prompts"
+    echo " 9. Monitor Keywords             ./run.sh interactive-monitor  # Guided keyword monitoring setup"
     echo ""
     echo ""
     echo "=== 📊 Statistics & Data Management ==="
-    echo " 8. Bot Performance Stats        ./run.sh stats-bot           # Show runtime stats, success rates, and account info"
-    echo " 9. Export Data to JSON          ./run.sh data-export         # Export all bot data and statistics to files"
-    echo "10. View Activity Logs           ./run.sh logs-view           # Display recent bot activity and error logs"
+    echo "10. Bot Performance Stats        ./run.sh stats-bot            # Show runtime stats, success rates, and account info"
+    echo "11. Export Data to JSON          ./run.sh data-export          # Export all bot data and statistics to files"
+    echo "12. View Activity Logs           ./run.sh logs-view            # Display recent bot activity and error logs"
     echo ""
     echo "=== ⚙️ Setup & Configuration ==="
-    echo "11. Install Dependencies         ./run.sh setup-install       # Setup virtual environment and install packages"
-    echo "12. Test API Connections         ./run.sh test-connections    # Verify Reddit API and Gemini AI connectivity"
+    echo "13. Install Dependencies         ./run.sh setup-install        # Setup virtual environment and install packages"
+    echo "14. Test API Connections         ./run.sh test-connections     # Verify Reddit API and Gemini AI connectivity"
     echo ""
     echo "0. Exit Menu"
     echo "==========="
     echo ""
-    read -p "Select option (0-12): " choice
+    read -p "Select option (0-14): " choice
     handle_menu_choice "$choice"
 }
 
@@ -653,19 +782,21 @@ handle_menu_choice() {
         # Content Retrieval  
         3) interactive_posts; pause_return ;;
         4) interactive_search; pause_return ;;
+        5) interactive_posts_with_comments; pause_return ;;
+        6) interactive_search_with_comments; pause_return ;;
         # Automation
-        5) comment_custom; pause_return ;;
-        6) interactive_comment; pause_return ;;
-        7) interactive_monitor; pause_return ;;
+        7) comment_custom; pause_return ;;
+        8) interactive_comment; pause_return ;;
+        9) interactive_monitor; pause_return ;;
         # Statistics & Data
-        8) stats_bot; pause_return ;;
-        9) data_export; pause_return ;;
-        10) logs_view; pause_return ;;
+        10) stats_bot; pause_return ;;
+        11) data_export; pause_return ;;
+        12) logs_view; pause_return ;;
         # Setup & Configuration
-        11) setup_install; pause_return ;;
-        12) test_connections; pause_return ;;
+        13) setup_install; pause_return ;;
+        14) test_connections; pause_return ;;
         0) echo "Exiting Reddit Bot..."; exit 0 ;;
-        *) echo "Invalid option. Please select 0-12."; pause_return ;;
+        *) echo "Invalid option. Please select 0-14."; pause_return ;;
     esac
     # Return to menu after each operation
     show_menu
@@ -696,6 +827,8 @@ main() {
             posts-search) posts_search "$2" "$3" "$4" ;;
             interactive-posts) interactive_posts ;;
             interactive-search) interactive_search ;;
+            posts-with-comments) interactive_posts_with_comments ;;
+            search-with-comments) interactive_search_with_comments ;;
             # Automation
             comment-custom) comment_custom "$2" "$3" ;;
             comment-auto) comment_auto "$2" "$3" "$4" ;;

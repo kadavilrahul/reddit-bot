@@ -3,3 +3,5 @@
 *.log*
 /__pycache__
 reddit_data_*.json
+reddit_posts_with_comments_*.json
+reddit_bot_export_*.json
