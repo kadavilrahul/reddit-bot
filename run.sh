@@ -67,10 +67,74 @@ check_requirements() {
         exit 1
     fi
     
-    # Check pip
+    # Check and install pip and venv
     if ! command -v pip &> /dev/null && ! command -v pip3 &> /dev/null; then
-        print_error "pip not found. Please install pip"
-        exit 1
+        print_warning "pip not found. Installing pip and venv..."
+        if command -v apt-get &> /dev/null; then
+            # Ubuntu/Debian
+            sudo apt-get update -qq
+            sudo apt-get install -y python3-pip python3-venv
+        elif command -v yum &> /dev/null; then
+            # RHEL/CentOS
+            sudo yum install -y python3-pip python3-venv
+        elif command -v dnf &> /dev/null; then
+            # Fedora
+            sudo dnf install -y python3-pip python3-venv
+        elif command -v pacman &> /dev/null; then
+            # Arch Linux
+            sudo pacman -S --noconfirm python-pip python-virtualenv
+        else
+            # Try using ensurepip module
+            print_info "Attempting to install pip using ensurepip..."
+            $PYTHON_CMD -m ensurepip --upgrade
+        fi
+        
+        # Verify pip installation
+        if ! command -v pip &> /dev/null && ! command -v pip3 &> /dev/null; then
+            print_error "Failed to install pip. Please install pip manually"
+            exit 1
+        else
+            print_success "pip installed successfully"
+        fi
+    else
+        print_success "pip found"
+    fi
+    
+    # Check and install python3-venv by testing actual venv creation
+    print_info "Checking for venv module availability..."
+    
+    # Test venv creation in a temporary directory
+    TEST_VENV="test_venv_$$"
+    if $PYTHON_CMD -m venv "$TEST_VENV" 2>/dev/null; then
+        print_success "venv module working"
+        rm -rf "$TEST_VENV"
+    else
+        print_warning "python3-venv not working properly. Installing..."
+        rm -rf "$TEST_VENV" 2>/dev/null || true
+        
+        if command -v apt-get &> /dev/null; then
+            # Ubuntu/Debian - install version-specific venv package
+            PYTHON_VERSION=$($PYTHON_CMD -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+            print_info "Installing python${PYTHON_VERSION}-venv..."
+            sudo apt-get update -qq
+            sudo apt-get install -y python${PYTHON_VERSION}-venv python3-venv python3-pip
+        elif command -v yum &> /dev/null; then
+            sudo yum install -y python3-venv
+        elif command -v dnf &> /dev/null; then
+            sudo dnf install -y python3-venv
+        elif command -v pacman &> /dev/null; then
+            sudo pacman -S --noconfirm python-virtualenv
+        fi
+        
+        # Verify venv installation by testing again
+        if $PYTHON_CMD -m venv "$TEST_VENV" 2>/dev/null; then
+            print_success "python3-venv installed successfully"
+            rm -rf "$TEST_VENV"
+        else
+            print_error "Failed to install python3-venv. Please install manually with: apt install python${PYTHON_VERSION}-venv"
+            rm -rf "$TEST_VENV" 2>/dev/null || true
+            exit 1
+        fi
     fi
     
     print_success "System requirements check passed"
@@ -80,14 +144,27 @@ check_requirements() {
 setup_virtual_environment() {
     print_header "=== SETTING UP VIRTUAL ENVIRONMENT ==="
     
-    # Remove existing environment
+    # Check if virtual environment already exists
     if [ -d "$VENV_NAME" ]; then
-        print_info "Removing existing virtual environment..."
-        rm -rf "$VENV_NAME"
+        print_info "Found existing virtual environment: $VENV_NAME"
+        print_info "Using existing virtual environment..."
+        
+        # Activate existing environment
+        source "$VENV_NAME/bin/activate"
+        print_success "Existing virtual environment activated"
+        
+        # Check if activation was successful
+        if [ -z "$VIRTUAL_ENV" ]; then
+            print_warning "Failed to activate existing environment. Recreating..."
+            rm -rf "$VENV_NAME"
+        else
+            print_success "Virtual environment is ready"
+            return 0
+        fi
     fi
     
-    # Create new environment
-    print_info "Creating virtual environment: $VENV_NAME"
+    # Create new environment only if existing one doesn't work
+    print_info "Creating new virtual environment: $VENV_NAME"
     $PYTHON_CMD -m venv "$VENV_NAME"
     
     # Activate environment
@@ -268,6 +345,10 @@ main() {
     check_requirements
     setup_virtual_environment
     install_dependencies
+    
+    # Ensure all packages are installed
+    print_info "Running pip install to ensure all dependencies are available..."
+    pip install -r requirements.txt --quiet
     
     # Check environment and run verification
     if check_environment; then

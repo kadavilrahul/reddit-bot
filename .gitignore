@@ -1,2 +1,5 @@
 /reddit_bot_env
 .env
+*.log*
+/__pycache__
+reddit_data_*.json
